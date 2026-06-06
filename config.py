@@ -28,6 +28,13 @@ MAX_HISTORY = 6           # conversation turns the brain remembers
 BIG_MODEL = "gemma3:4b"
 BIG_MODEL_MIN_FREE_GB = 6.0
 
+# Cloud brain (Ollama cloud, free account): much smarter, zero RAM,
+# consistent ~3s. Needs internet + `ollama signin`. On ANY failure
+# (offline, rate limit) Nova falls back to the local model for a while.
+CLOUD_MODEL = "gpt-oss:120b-cloud"   # set to None to stay fully local
+CLOUD_TIMEOUT = 12                   # seconds before giving up on cloud
+CLOUD_COOLDOWN = 180                 # seconds to stay local after a failure
+
 # ── Speech recognition engine ───────────────────────────────
 # "google"  — free Google web API: best accuracy, needs internet
 # "whisper" — local Whisper server (run: py -3.12 whisper_server.py)

@@ -6,6 +6,7 @@ smarter replies; otherwise the small model runs. Checked per request, so
 Nova adapts as you open/close other programs."""
 import ctypes
 import json
+import time
 
 import requests
 
@@ -74,6 +75,11 @@ class Brain:
     def __init__(self):
         self.history: list[dict] = []
         self._big_installed: bool | None = None  # checked lazily, once
+        self._cloud_failed_at: float = 0.0       # last cloud failure time
+
+    def _cloud_available(self) -> bool:
+        return bool(config.CLOUD_MODEL) and \
+            (time.time() - self._cloud_failed_at) > config.CLOUD_COOLDOWN
 
     def _pick_model(self) -> str:
         if not config.BIG_MODEL:
@@ -100,22 +106,36 @@ class Brain:
         if facts:
             system += "\nThings you remember about the user:\n" + \
                       "\n".join(f"- {f}" for f in facts[-10:])
-        resp = requests.post(
-            config.OLLAMA_URL,
-            json={
-                "model": self._pick_model(),
-                "messages": [{"role": "system", "content": system}] + messages,
-                "format": "json",
-                "stream": False,
-                "keep_alive": "60m",   # keep model in RAM — no reload lag
-                # num_predict caps reply length: spoken replies should be
-                # short anyway, and fewer tokens = faster on CPU
-                "options": {"temperature": 0.4, "num_predict": 120},
-            },
-            timeout=60,
-        )
-        resp.raise_for_status()
-        content = resp.json()["message"]["content"]
+        full_messages = [{"role": "system", "content": system}] + messages
+
+        def post(model: str, timeout: float):
+            resp = requests.post(
+                config.OLLAMA_URL,
+                json={
+                    "model": model,
+                    "messages": full_messages,
+                    "format": "json",
+                    "stream": False,
+                    "keep_alive": "60m",   # keep model in RAM — no reload lag
+                    # num_predict caps reply length: spoken replies should be
+                    # short anyway, and fewer tokens = faster on CPU
+                    "options": {"temperature": 0.4, "num_predict": 120},
+                },
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            return resp.json()["message"]["content"]
+
+        # cloud first (smart + zero RAM); ANY failure → local for a while
+        content = None
+        if self._cloud_available():
+            try:
+                content = post(config.CLOUD_MODEL, config.CLOUD_TIMEOUT)
+            except Exception:
+                self._cloud_failed_at = time.time()
+                print("  [cloud unavailable — using local model]")
+        if content is None:
+            content = post(self._pick_model(), 60)
         try:
             data = json.loads(content)
         except json.JSONDecodeError:
