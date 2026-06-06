@@ -74,8 +74,6 @@ def main():
     import threading
     threading.Thread(target=brain.warm_up, daemon=True).start()
 
-    interrupted_flag = {"hit": False}
-
     if text_mode:
         get_input = lambda: input("  You: ").strip()
         speak_fn = speaker.say
@@ -94,7 +92,6 @@ def main():
             finally:
                 listener.stop_interrupt_watch()
             if interrupted:
-                interrupted_flag["hit"] = True
                 print("  [interrupted]")
             return interrupted
 
@@ -104,8 +101,16 @@ def main():
     if mood:
         if not text_mode:
             print(f"  You: {mood}")
-        decision = brain.think(f"(user's mood/answer to 'how are you feeling') {mood}")
-        speaker.say(decision["speak"] or "Good to hear. I'm here whenever you need me.")
+        # the user may answer the greeting with a COMMAND ("play some
+        # music") — honour it instead of only chatting about it
+        intent = intents.parse(mood)
+        if intent:
+            action, args = intent
+            handle({"speak": "", "action": action, "args": args},
+                   brain, speaker, get_input, speak_fn=speak_fn)
+        else:
+            decision = brain.think(f"(user's mood/answer to 'how are you feeling') {mood}")
+            speaker.say(decision["speak"] or "Good to hear. I'm here whenever you need me.")
     else:
         speaker.say("No worries. I'm here whenever you need me.")
 
@@ -142,7 +147,9 @@ def main():
                 continue
             if not text_mode:
                 print(f"  You: {command}")
-            if command.lower().strip(" .!?,") in ("exit", "quit", "goodbye", "good bye", "shutdown", "shut down"):
+            # NOTE: "shut down" is NOT an exit word — it belongs to the PC
+            # shutdown intent. Exiting Nova is goodbye/exit/quit only.
+            if command.lower().strip(" .!?,") in ("exit", "quit", "goodbye", "good bye"):
                 speaker.say(f"Goodbye {config.USER_NAME}, see you soon!")
                 break
 
@@ -157,11 +164,10 @@ def main():
                 decision = brain.think(command)
                 took = (datetime.datetime.now() - t0).total_seconds()
                 print(f"  [brain {took:.1f}s]")
-            interrupted_flag["hit"] = False
             handle(decision, brain, speaker, get_input, speak_fn=speak_fn)
-            follow_up = True  # Nova just replied — allow a direct follow-up
-            # if the user barged in, go straight to listening for the
-            # replacement command (follow_up already does exactly that)
+            # Nova just replied — listen directly for a follow-up (also
+            # covers barge-in: the replacement command comes right away)
+            follow_up = True
 
         except KeyboardInterrupt:
             speaker.say("Goodbye!")

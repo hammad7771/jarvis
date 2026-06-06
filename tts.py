@@ -56,6 +56,8 @@ class Speaker:
             self.sapi.Voice = voices.Item(config.TTS_VOICE_INDEX)
         self._tmpdir = Path(tempfile.gettempdir()) / "nova_tts"
         self._tmpdir.mkdir(exist_ok=True)
+        for old in self._tmpdir.glob("*.mp3"):   # clear leftovers from crashes
+            old.unlink(missing_ok=True)
 
     # ── engines ─────────────────────────────────────────────
     def _say_neural(self, text: str, stop_event=None) -> bool:

@@ -117,9 +117,9 @@ class Brain:
                     "format": "json",
                     "stream": False,
                     "keep_alive": "60m",   # keep model in RAM — no reload lag
-                    # num_predict caps reply length: spoken replies should be
-                    # short anyway, and fewer tokens = faster on CPU
-                    "options": {"temperature": 0.4, "num_predict": 120},
+                    # cap reply length (spoken replies are short) but leave
+                    # headroom: too tight truncates the JSON mid-stream
+                    "options": {"temperature": 0.4, "num_predict": 250},
                 },
                 timeout=timeout,
             )
@@ -138,8 +138,16 @@ class Brain:
             content = post(self._pick_model(), 60)
         try:
             data = json.loads(content)
+            if not isinstance(data, dict):
+                raise json.JSONDecodeError("not an object", content, 0)
         except json.JSONDecodeError:
-            data = {"speak": content.strip()[:300], "action": "none", "args": {}}
+            # broken/truncated JSON: salvage the "speak" text instead of
+            # reading raw JSON out loud
+            import re
+            m = re.search(r'"speak"\s*:\s*"((?:[^"\\]|\\.)*)', content)
+            speak = (m.group(1).replace('\\"', '"').strip()
+                     if m else "Sorry, I lost my train of thought. Ask me again?")
+            data = {"speak": speak, "action": "none", "args": {}}
         # normalise
         return {
             "speak": str(data.get("speak", "")).strip(),
@@ -174,15 +182,6 @@ class Brain:
         decision = self._chat(self.history)
         self._remember("assistant", json.dumps(decision))
         return decision
-
-    def report_result(self, action: str, result: str) -> str:
-        """Tell the model what the tool did; get a natural spoken summary."""
-        self._remember("user", f"[system] action '{action}' finished. Result: {result}. "
-                               f"Tell the user briefly.")
-        decision = self._chat(self.history)
-        self._remember("assistant", json.dumps(decision))
-        return decision["speak"] or result
-
 
 if __name__ == "__main__":
     b = Brain()

@@ -60,11 +60,9 @@ NEURAL_VOICE = "en-US-AriaNeural"   # try: en-US-JennyNeural, en-GB-SoniaNeural,
                                     # en-IN-NeerjaNeural (South-Asian accent)
 
 # ── Speech ──────────────────────────────────────────────────
-# en-in = South-Asian English model (much better for Pakistani accent).
-# Switch back to "vosk-model-small-en-us-0.15" if you ever prefer the US one.
+# en-in = South-Asian English model (much better for Pakistani accent)
 VOSK_MODEL_DIR = str(Path(__file__).parent / "models" / "vosk-model-small-en-in-0.4")
 SAMPLE_RATE = 16000
-TTS_RATE = 180            # words per minute
 TTS_VOICE_INDEX = 1       # offline fallback voice: 1 = Zira (female, matches
                           # the neural voice), 0 = David (male)
 

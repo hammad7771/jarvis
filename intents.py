@@ -41,6 +41,31 @@ def parse(text: str) -> tuple[str, dict] | None:
     # but keep inner dots so "open youtube.com" still works
     t = t.replace(",", "").replace("!", "").replace("?", "").rstrip(".").strip()
 
+    # ── reminders & memory FIRST: their payload may contain command
+    # words ("remind me to PLAY cricket", "remember that i DELETEd it")
+    # that would otherwise hijack the wrong intent below.
+    m = re.search(r"\bremind me\s+in\s+(\d+(?:\.\d+)?)\s+(second|minute|hour)s?\s*(?:to|that|about)?\s*(.*)", t)
+    if m:
+        amount, unit, msg = float(m.group(1)), m.group(2), m.group(3).strip()
+        return "set_reminder", {unit + "s": amount, "message": msg or "you asked me to remind you"}
+    m = re.search(r"\bremind me\s+(?:to|that|about)\s+(.+?)\s+in\s+(\d+(?:\.\d+)?)\s+(second|minute|hour)s?\b", t)
+    if m:
+        msg, amount, unit = m.group(1).strip(), float(m.group(2)), m.group(3)
+        return "set_reminder", {unit + "s": amount, "message": msg}
+    m = re.search(r"\b(?:set\s+)?(?:a\s+)?timer\s+(?:for\s+)?(\d+(?:\.\d+)?)\s+(second|minute)s?\b", t)
+    if m:
+        return "set_timer", {m.group(2) + "s": float(m.group(1))}
+    if re.search(r"\b(?:list|any|what|show)\b.*\breminders?\b|\breminders\b\s*$", t):
+        return "list_reminders", {}
+    if re.search(r"\bwhat do you (?:know|remember)\b", t):
+        return "recall", {}
+    m = re.search(r"\bremember\s+(?:that\s+)?(.+)", t)
+    if m and "remind me" not in t:
+        return "remember", {"fact": m.group(1).strip()}
+    m = re.search(r"\bforget\s+(?:about\s+|that\s+|everything about\s+)?(.+)", t)
+    if m:
+        return "forget", {"keyword": m.group(1).strip()}
+
     # time & date
     if re.search(r"\b(?:what(?:'s| is)?\s+(?:the\s+)?time|time is it)\b", t):
         return "get_time", {}
@@ -85,32 +110,6 @@ def parse(text: str) -> tuple[str, dict] | None:
     if m:
         return "list_files", {"folder": m.group(1)}
 
-    # memory — "remember that my exam is on friday", "what do you remember"
-    if re.search(r"\bwhat do you (?:know|remember)\b", t):
-        return "recall", {}
-    m = re.search(r"\bremember\s+(?:that\s+)?(.+)", t)
-    if m and "remind me" not in t:
-        return "remember", {"fact": m.group(1).strip()}
-    m = re.search(r"\bforget\s+(?:about\s+|that\s+|everything about\s+)?(.+)", t)
-    if m:
-        return "forget", {"keyword": m.group(1).strip()}
-
-    # reminders & timers — "remind me in 20 minutes to check the oven",
-    # "remind me to call ali in 2 hours", "set a timer for 5 minutes"
-    m = re.search(r"\bremind me\s+in\s+(\d+(?:\.\d+)?)\s+(second|minute|hour)s?\s*(?:to|that|about)?\s*(.*)", t)
-    if m:
-        amount, unit, msg = float(m.group(1)), m.group(2), m.group(3).strip()
-        return "set_reminder", {unit + "s": amount, "message": msg or "you asked me to remind you"}
-    m = re.search(r"\bremind me\s+(?:to|that|about)\s+(.+?)\s+in\s+(\d+(?:\.\d+)?)\s+(second|minute|hour)s?\b", t)
-    if m:
-        msg, amount, unit = m.group(1).strip(), float(m.group(2)), m.group(3)
-        return "set_reminder", {unit + "s": amount, "message": msg}
-    m = re.search(r"\b(?:set\s+)?(?:a\s+)?timer\s+(?:for\s+)?(\d+(?:\.\d+)?)\s+(second|minute)s?\b", t)
-    if m:
-        return "set_timer", {m.group(2) + "s": float(m.group(1))}
-    if re.search(r"\b(?:list|any|what|show)\b.*\breminders?\b|\breminders\b\s*$", t):
-        return "list_reminders", {}
-
     # window control — "minimize this window", "show desktop"...
     # ('minimum'/'short'/'shore' = common Whisper mishearings)
     if re.search(r"\b(?:minimi[sz]e|minimum)\s+(?:this\s+|the\s+)?(?:window|screen)\b", t):
@@ -132,6 +131,8 @@ def parse(text: str) -> tuple[str, dict] | None:
     m = re.search(r"\bopen\s+(.+?)\s+settings\b|\b(.+?)\s+settings\s*$", t)
     if m:
         page = (m.group(1) or m.group(2) or "").strip()
+        if page in ("open", "the", "my", "windows"):  # "open settings" alone
+            page = ""
         return "open_settings", {"page": page}
 
     # volume / brightness / power / screenshot / lock
@@ -153,9 +154,10 @@ def parse(text: str) -> tuple[str, dict] | None:
         return "take_screenshot", {}
     if re.search(r"\bcancel\s+(?:the\s+)?(?:shutdown|shut down|restart)\b", t):
         return "cancel_shutdown", {}
-    m = re.search(r"\b(?:shut\s*down|turn off)\s+(?:the\s+|my\s+)?(?:pc|computer|system)?(?:\s+in\s+(\d+)\s+minutes?)?", t)
-    if m and re.search(r"\b(?:pc|computer|system|shut\s*down)\b", t):
-        return "shutdown_pc", {"minutes": int(m.group(1) or 0)}
+    m = re.search(r"\b(?:shut\s*down|turn off)(?:\s+(?:the\s+|my\s+)?(?:pc|computer|system))?(?:\s+in\s+(\d+)\s+minutes?)?\s*$"
+                  r"|\b(?:shut\s*down|turn off)\s+(?:the\s+|my\s+)?(?:pc|computer|system)(?:\s+in\s+(\d+)\s+minutes?)?", t)
+    if m and re.search(r"\bshut\s*down\b|\b(?:pc|computer|system)\b", t):
+        return "shutdown_pc", {"minutes": int(m.group(1) or m.group(2) or 0)}
     m = re.search(r"\brestart\s+(?:the\s+|my\s+)?(?:pc|computer|system)(?:\s+in\s+(\d+)\s+minutes?)?", t)
     if m:
         return "restart_pc", {"minutes": int(m.group(1) or 0)}
