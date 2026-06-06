@@ -16,6 +16,10 @@ WAKE_WORDS = ["nova", "hey nova", "nover", "novah", "noah", "over there nova",
 WAKE_PREFIXES = ["no i", "no one", "now i", "no a", "now a", "know a",
                  "hey no", "and over", "nor a"]
 
+# Saying any of these ALONE while Nova is talking cuts her off mid-speech.
+INTERRUPT_WORDS = ["stop", "wait", "cancel", "quiet", "shut up",
+                   "never mind", "nevermind", "okay stop", "nova stop"]
+
 # ── LLM (Ollama) ────────────────────────────────────────────
 OLLAMA_URL = "http://localhost:11434/api/chat"
 OLLAMA_MODEL = "gemma3:1b"

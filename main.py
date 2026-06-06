@@ -36,27 +36,30 @@ def time_greeting() -> str:
     return f"{part} {config.USER_NAME}! I'm {config.ASSISTANT_NAME}. How are you feeling today?"
 
 
-def handle(decision: dict, brain: Brain, speaker: Speaker, get_input) -> None:
-    """Speak the reply and run the tool (with confirmation for deletes)."""
+def handle(decision: dict, brain: Brain, speaker: Speaker, get_input,
+           speak_fn=None) -> None:
+    """Speak the reply and run the tool (with confirmation for deletes).
+    speak_fn lets voice mode pass an interruptible speaker."""
+    say = speak_fn or speaker.say
     action, args = decision["action"], decision["args"]
 
     if action in tools.NEEDS_CONFIRMATION:
-        speaker.say(decision["speak"] or f"Should I {action.replace('_', ' ')} {args.get('name', '')}? Say yes to confirm.")
+        say(decision["speak"] or f"Should I {action.replace('_', ' ')} {args.get('name', '')}? Say yes to confirm.")
         answer = get_input().lower()
         if not any(w in answer for w in ("yes", "yeah", "sure", "go ahead", "confirm", "do it")):
-            speaker.say("Okay, cancelled.")
+            say("Okay, cancelled.")
             return
         result = tools.run(action, args)
-        speaker.say(result)
+        say(result)
         return
 
     if action != "none":
         # speak only the tool's REAL result — the model's own "speak" for
         # actions tends to hallucinate (wrong time, "already created", etc.)
         result = tools.run(action, args)
-        speaker.say(result)
+        say(result)
     elif decision["speak"]:
-        speaker.say(decision["speak"])
+        say(decision["speak"])
 
 
 def main():
@@ -68,14 +71,29 @@ def main():
     import threading
     threading.Thread(target=brain.warm_up, daemon=True).start()
 
+    interrupted_flag = {"hit": False}
+
     if text_mode:
         get_input = lambda: input("  You: ").strip()
+        speak_fn = speaker.say
     else:
         from stt import Listener, ensure_whisper_server  # mic-only imports
         if config.STT_ENGINE == "whisper" and config.WHISPER_AUTOSTART:
             ensure_whisper_server()
         listener = Listener()
         get_input = listener.listen_command
+
+        def speak_fn(text):
+            """Interruptible speech: saying 'stop'/'wait' alone cuts Nova off."""
+            ev = listener.start_interrupt_watch()
+            try:
+                interrupted = speaker.say(text, stop_event=ev)
+            finally:
+                listener.stop_interrupt_watch()
+            if interrupted:
+                interrupted_flag["hit"] = True
+                print("  [interrupted]")
+            return interrupted
 
     # ── greeting + mood ─────────────────────────────────────
     speaker.say(time_greeting())
@@ -136,8 +154,11 @@ def main():
                 decision = brain.think(command)
                 took = (datetime.datetime.now() - t0).total_seconds()
                 print(f"  [brain {took:.1f}s]")
-            handle(decision, brain, speaker, get_input)
+            interrupted_flag["hit"] = False
+            handle(decision, brain, speaker, get_input, speak_fn=speak_fn)
             follow_up = True  # Nova just replied — allow a direct follow-up
+            # if the user barged in, go straight to listening for the
+            # replacement command (follow_up already does exactly that)
 
         except KeyboardInterrupt:
             speaker.say("Goodbye!")

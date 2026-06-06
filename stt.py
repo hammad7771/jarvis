@@ -13,6 +13,7 @@ import queue
 import struct
 import subprocess
 import sys
+import threading
 import time
 import winsound
 from pathlib import Path
@@ -158,6 +159,41 @@ class Listener:
                     if end != -1 and not partial[end:].strip():
                         print()
                         return ""
+
+    # ── interrupt watch (barge-in while Nova speaks) ────────
+    def start_interrupt_watch(self) -> threading.Event:
+        """Listen in the background for a lone interrupt word ('stop',
+        'wait'...). Returns an Event that gets set when one is heard.
+        The exact-match rule stops Nova's own speech (echoed into the
+        mic as longer phrases) from triggering it."""
+        self._int_fired = threading.Event()
+        self._int_quit = threading.Event()
+
+        def watch():
+            rec = KaldiRecognizer(self.model, config.SAMPLE_RATE)
+            self._drain()
+            with self._stream(4000):
+                while not self._int_quit.is_set():
+                    try:
+                        data = self.q.get(timeout=0.3)
+                    except queue.Empty:
+                        continue
+                    if rec.AcceptWaveform(data):
+                        heard = json.loads(rec.Result()).get("text", "").strip()
+                    else:
+                        heard = json.loads(rec.PartialResult()).get("partial", "").strip()
+                    if heard in config.INTERRUPT_WORDS:
+                        self._int_fired.set()
+                        return
+
+        self._int_thread = threading.Thread(target=watch, daemon=True)
+        self._int_thread.start()
+        return self._int_fired
+
+    def stop_interrupt_watch(self):
+        self._int_quit.set()
+        self._int_thread.join(timeout=1.5)
+        self._drain()
 
     # ── command capture ─────────────────────────────────────
     def record_until_silence(self, max_seconds: float = 12.0) -> bytes:
