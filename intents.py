@@ -112,15 +112,16 @@ def parse(text: str) -> tuple[str, dict] | None:
         return "list_reminders", {}
 
     # window control — "minimize this window", "show desktop"...
-    if re.search(r"\bminimi[sz]e\s+(?:this\s+|the\s+)?window\b", t):
+    # ('minimum'/'short'/'shore' = common Whisper mishearings)
+    if re.search(r"\b(?:minimi[sz]e|minimum)\s+(?:this\s+|the\s+)?(?:window|screen)\b", t):
         return "minimize_window", {}
-    if re.search(r"\bmaximi[sz]e\s+(?:this\s+|the\s+)?window\b", t):
+    if re.search(r"\bmaximi[sz]e\s+(?:this\s+|the\s+)?(?:window|screen)\b", t):
         return "maximize_window", {}
     if re.search(r"\bclose\s+(?:this\s+|the\s+)?window\b", t):
         return "close_window", {}
     if re.search(r"\b(?:switch|next)\s+window\b", t):
         return "switch_window", {}
-    if re.search(r"\bshow\s+(?:the\s+|my\s+)?desktop\b|\bminimi[sz]e\s+(?:everything|all)\b", t):
+    if re.search(r"\b(?:show|short|shore)\s+(?:the\s+|my\s+)?desktop\b|\bminimi[sz]e\s+(?:everything|all)\b", t):
         return "show_desktop", {}
 
     # Windows settings — dark mode + settings pages

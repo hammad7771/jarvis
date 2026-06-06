@@ -60,6 +60,9 @@ def handle(decision: dict, brain: Brain, speaker: Speaker, get_input,
         say(result)
     elif decision["speak"]:
         say(decision["speak"])
+    else:
+        # never go silent — silence reads as 'Nova is broken'
+        say("Sorry, I didn't catch that. Could you say it again?")
 
 
 def main():

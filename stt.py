@@ -133,14 +133,32 @@ class Listener:
 
     def wait_for_wake_word(self) -> str:
         """Block until a wake word is heard. Returns any extra words
-        spoken after the wake word in the same breath (may be '')."""
+        spoken after the wake word in the same breath (may be '').
+        Self-healing: if the mic stream dies (no audio for ~6s), it is
+        reopened instead of waiting forever."""
+        while True:
+            result = self._wake_session()
+            if result is not None:
+                return result
+            print("  [mic went quiet — restarting audio stream]")
+
+    def _wake_session(self) -> str | None:
+        """One wake-word listening session. None = stream died, reopen."""
         rec = KaldiRecognizer(self.model, config.SAMPLE_RATE)
         self._drain()
         last_partial = ""
+        dead_polls = 0
         with self._stream():
             print(f"\n[listening for wake word — say '{config.ASSISTANT_NAME}']")
             while True:
-                data = self.q.get()
+                try:
+                    data = self.q.get(timeout=3)
+                    dead_polls = 0
+                except queue.Empty:
+                    dead_polls += 1
+                    if dead_polls >= 2:   # ~6s with zero audio = dead stream
+                        return None
+                    continue
                 if rec.AcceptWaveform(data):
                     text = json.loads(rec.Result()).get("text", "").lower()
                     end = self._find_wake(text)
@@ -211,7 +229,10 @@ class Listener:
             beep_listen()
             print("[listening — speak after the beep]")
             while elapsed < max_seconds:
-                data = self.q.get()
+                try:
+                    data = self.q.get(timeout=2)   # dead-stream protection
+                except queue.Empty:
+                    break
                 elapsed += chunk_secs
                 level = _rms(data)
                 if not started:
